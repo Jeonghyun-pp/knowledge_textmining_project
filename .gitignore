@@ -1,0 +1,16 @@
+# 대용량 데이터셋 (GitHub 100MB 제한 초과) — 외부 링크로 공유, data/ 에 직접 배치
+/data/dataset.zip
+
+# python
+__pycache__/
+*.pyc
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# 가상환경
+.venv/
+venv/
+env/
