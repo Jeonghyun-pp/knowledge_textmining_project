@@ -65,6 +65,23 @@ def pca_2d(_vectors_hash: str):
 
 
 @st.cache_data(show_spinner=False)
+def thumb_data_uri(image_id: str, size: int = 56) -> str | None:
+    """착장 이미지를 size×size 썸네일로 축소해 base64 data URI로 반환.
+    Altair mark_image의 url 인코딩에 그대로 넣어 PCA 점 위에 사진을 얹는 용도."""
+    import base64
+    try:
+        img = R.load_image(image_id)
+    except Exception:
+        return None
+    img = img.copy()
+    img.thumbnail((size, size))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
+
+
+@st.cache_data(show_spinner=False)
 def load_image_bytes(image_id: str):
     """zip에서 이미지 바이트를 읽어 캐시 (st.image 재호출 비용 절감)."""
     try:
@@ -146,19 +163,90 @@ with st.container(border=True):
 
     with c2:
         if show_pca:
+            import altair as alt
+
             pts, _pca, _ = pca_2d("v1")
-            df_pca = pd.DataFrame(pts, columns=["x", "y"])
-            df_pca["종류"] = "착장 (전체)"
-            df_pca["label"] = [o["image_id"] for o in trace.meta["outfits"]]
-            # top-K 강조
+            outfits = trace.meta["outfits"]
+            tags_list = trace.meta.get("tags", [{}] * len(outfits))
             topk_ids = {m.image_id for m in trace.matches}
-            df_pca.loc[df_pca["label"].isin(topk_ids), "종류"] = "추천 top-K"
+            rank_by_id = {m.image_id: m.rank for m in trace.matches}
+
+            df_pca = pd.DataFrame(pts, columns=["x", "y"])
+            df_pca["image_id"] = [o["image_id"] for o in outfits]
+            df_pca["score"] = trace.scores
+            df_pca["kind"] = np.where(
+                df_pca["image_id"].isin(topk_ids), "추천 top-K", "착장 (전체)")
+            # hover 툴팁용 7축 태그(주요 3축)
+            df_pca["item"] = [t.get("item", "") for t in tags_list]
+            df_pca["style"] = [t.get("style", "") for t in tags_list]
+            df_pca["mood"] = [t.get("mood", "") for t in tags_list]
+            # top-K 점에만 "#순위 ID" 라벨
+            df_pca["label"] = [
+                f"#{rank_by_id[i]} {i}" if i in rank_by_id else ""
+                for i in df_pca["image_id"]
+            ]
+
             # 쿼리 투영
             q2d = _pca.transform(trace.query_vector[None, :])[0]
-            df_q = pd.DataFrame({"x": [q2d[0]], "y": [q2d[1]], "종류": ["쿼리"], "label": ["query"]})
+            df_q = pd.DataFrame({
+                "x": [q2d[0]], "y": [q2d[1]], "image_id": ["쿼리"],
+                "score": [float("nan")], "kind": ["쿼리"],
+                "item": [query], "style": [""], "mood": [""], "label": ["쿼리"],
+            })
             df_plot = pd.concat([df_pca, df_q], ignore_index=True)
-            st.scatter_chart(df_plot, x="x", y="y", color="종류", height=300)
-            st.caption("임베딩 공간 PCA 2D 투영 — 쿼리(빨강)와 가까운 착장이 추천됩니다.")
+
+            color_scale = alt.Scale(
+                domain=["착장 (전체)", "추천 top-K", "쿼리"],
+                range=["#9aa7d6", "#f5a623", "#d0021b"],
+            )
+            base = alt.Chart(df_plot)
+            points = base.mark_circle(opacity=0.85).encode(
+                x=alt.X("x:Q", title="PCA-1"),
+                y=alt.Y("y:Q", title="PCA-2"),
+                color=alt.Color("kind:N", scale=color_scale, title="종류"),
+                size=alt.condition(
+                    alt.datum.kind == "착장 (전체)", alt.value(70), alt.value(240)),
+                tooltip=[
+                    alt.Tooltip("image_id:N", title="착장 ID"),
+                    alt.Tooltip("kind:N", title="종류"),
+                    alt.Tooltip("score:Q", title="점수", format=".4f"),
+                    alt.Tooltip("item:N", title="아이템"),
+                    alt.Tooltip("style:N", title="스타일"),
+                    alt.Tooltip("mood:N", title="무드"),
+                ],
+            )
+            labels = base.transform_filter(alt.datum.label != "").mark_text(
+                align="left", dx=9, dy=-5, fontSize=11, fontWeight="bold",
+            ).encode(
+                x="x:Q", y="y:Q", text="label:N",
+                color=alt.Color("kind:N", scale=color_scale, legend=None),
+            )
+
+            # top-K 점 위에 실제 착장 썸네일을 얹는다 (점 = 옷 사진)
+            thumb_rows = []
+            for m in trace.matches:
+                uri = thumb_data_uri(m.image_id)
+                if uri is None:
+                    continue
+                row = df_pca.loc[df_pca["image_id"] == m.image_id]
+                if row.empty:
+                    continue
+                thumb_rows.append({
+                    "x": float(row["x"].iloc[0]), "y": float(row["y"].iloc[0]),
+                    "url": uri,
+                })
+            chart_layers = [points, labels]
+            if thumb_rows:
+                df_thumb = pd.DataFrame(thumb_rows)
+                thumbs = alt.Chart(df_thumb).mark_image(width=40, height=40).encode(
+                    x="x:Q", y="y:Q", url="url:N",
+                )
+                chart_layers.append(thumbs)
+
+            chart = alt.layer(*chart_layers).interactive().properties(height=340)
+            st.altair_chart(chart, use_container_width=True)
+            st.caption("추천 top-K(주황)는 **실제 착장 썸네일**로 표시됩니다. "
+                       "점에 **마우스를 올리면** 착장 ID·점수·태그가 뜨고, 쿼리(빨강)와 가까울수록 추천 후보입니다.")
         else:
             st.caption("사이드바에서 PCA 시각화를 켜면 임베딩 공간이 표시됩니다.")
 

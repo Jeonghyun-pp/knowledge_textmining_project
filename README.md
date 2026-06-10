@@ -3,7 +3,7 @@
 기획안 방식(자연어 태그 ↔ 사용자 입력 의미 유사도)을 그대로 구현한 추천 모듈.
 
 - **임베딩**: BGE-M3 (로컬, 무료)
-- **데이터**: `data/dataset.zip` 안의 `outfits.xlsx` (착장 135개 × 7축 태그)
+- **데이터**: `../data/dataset.zip` 안의 `outfits.xlsx` (착장 135개 × 7축 태그)
 - **스코어링**: 착장별 상위 3개 축 cosine 평균 (**top-3 mean**)
 
 ## 동작 구조
@@ -14,17 +14,23 @@
 데이터는 **압축 해제 불필요** — `dataset.zip`에서 직접 읽습니다.
 
 ## 팀원 셋업 (GitHub clone 후)
-> ⚠️ `data/dataset.zip`(≈158MB)은 GitHub 100MB 제한을 넘어 **레포에 포함되지 않습니다.**
-> 아래 0번을 먼저 수행해야 ④ 결과의 착장 이미지가 표시됩니다.
+> ⚠️ `data/dataset.zip`(≈158MB, 착장 이미지 + `outfits.xlsx`)은 GitHub 100MB 제한을 넘어 **레포에 포함되지 않습니다.**
+> 아래 **0번**을 먼저 수행해야 ④ 결과의 착장 이미지가 표시됩니다.
+
+**0) 데이터셋 내려받기** → 📥 [Google Drive에서 `dataset.zip` 받기](https://drive.google.com/file/d/1AIjPgX9UwJtAMM0Whg9Z3EEE8JmTxT_v/view?usp=sharing)
+
+받은 `dataset.zip`을 **압축 해제하지 말고** 레포의 `data/` 폴더에 그대로 둡니다.
+최종 경로 → `<repo>/data/dataset.zip`
 
 ```bash
-# 0) 데이터셋 내려받기 (코드에는 포함 안 됨)
-#    아래 링크에서 dataset.zip 을 받아 레포의 data/ 폴더에 그대로 둡니다.
-#    최종 경로:  <repo>/data/dataset.zip
-#    공유 링크:  <여기에 OneDrive/Google Drive 공유 링크>
+# 0) 데이터셋 내려받기
+#  (A) 위 Google Drive 링크에서 직접 받아 data/dataset.zip 로 저장, 또는
+#  (B) 터미널에서 gdown 으로 바로 받기 ↓
+pip install gdown
+gdown 1AIjPgX9UwJtAMM0Whg9Z3EEE8JmTxT_v -O data/dataset.zip
 
 # 1) 의존성 설치
-pip install -r requirements.txt   # (outfit_recommender/ 안에서)
+pip install -r requirements.txt
 
 # 2) 실행
 python -m streamlit run app.py
